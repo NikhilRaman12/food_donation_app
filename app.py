@@ -134,4 +134,5 @@ st.dataframe(unclaimed)
 # ------------------------------
 # Footer
 # ------------------------------
-st.caption("Built with ❤️ using Streamlit | Food Donation Analytics")
+st.caption("Developed with Streamlit | Food Donation Insights Dashboard")
+
