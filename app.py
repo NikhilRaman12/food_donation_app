@@ -58,6 +58,7 @@ food_types = food_listings["Food_Type"].dropna().unique().tolist() if "Food_Type
 sel_city = st.sidebar.selectbox("City", ["All"] + sorted(map(str, cities))) if cities else "All"
 sel_food = st.sidebar.selectbox("Food Type", ["All"] + sorted(map(str, food_types))) if food_types else "All"
 
+# --- Build SQL filters dynamically ---
 filters = []
 params = {}
 
@@ -68,7 +69,8 @@ if sel_food != "All":
     filters.append("fl.Food_Type = :ft")
     params["ft"] = sel_food
 
-where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+filter_clause = " AND ".join(filters)
+where_clause = f"WHERE {filter_clause}" if filters else ""
 
 # ------------------------------
 # KPI Metrics
@@ -120,14 +122,14 @@ st.dataframe(top_providers)
 # ------------------------------
 st.subheader("🧾 Unclaimed Food Listings")
 query = f"""
-    SELECT fl.Food_ID, fl.Food_Name, fl.Quantity, fl.Expiry_Date
+    SELECT fl.Food_ID, fl.Food_Name, fl.Food_Type, fl.Quantity, fl.Expiry_Date
     FROM food_listings fl
     LEFT JOIN claims c ON fl.Food_ID = c.Food_ID
     LEFT JOIN providers p ON fl.Provider_ID = p.Provider_ID
-    {("WHERE " + " AND ".join(filters) + " AND" if filters else "WHERE")} c.Claim_ID IS NULL
+    WHERE c.Claim_ID IS NULL
+    {(" AND " + filter_clause if filters else "")}
     LIMIT 20;
 """
-query = query.replace("WHERE  AND", "WHERE")  # fix double WHERE
 unclaimed = run_query(conn, query, params)
 st.dataframe(unclaimed)
 
@@ -135,4 +137,3 @@ st.dataframe(unclaimed)
 # Footer
 # ------------------------------
 st.caption("Developed with Streamlit | Food Donation Insights Dashboard")
-
