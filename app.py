@@ -14,6 +14,32 @@ st.set_page_config(
 )
 
 # ------------------------------
+# Helper: Classify Food Type
+# ------------------------------
+def classify_food_type(name: str) -> str:
+    """Classify food type (Vegan / Vegetarian / Non-Veg) based on keywords in Food_Name."""
+    if not isinstance(name, str):
+        return "Unknown"
+
+    name_lower = name.lower()
+
+    # Non-Veg keywords
+    nonveg_keywords = ["chicken",  "fish"]
+    # Vegetarian but not Vegan
+    vegetarian_keywords = ["milk", "cheese", "paneer", "butter", "curd", "yogurt", "ghee"]
+    # Vegan keywords (fruits/vegetables/grains)
+    vegan_keywords = ["rice", "bread", "salad", "fruit", "vegetable", "tofu", "lentil"]
+
+    if any(word in name_lower for word in nonveg_keywords):
+        return "Non-Veg"
+    elif any(word in name_lower for word in vegetarian_keywords):
+        return "Vegetarian"
+    elif any(word in name_lower for word in vegan_keywords):
+        return "Vegan"
+    else:
+        return "Vegan"  # default fallback
+
+# ------------------------------
 # Load Data
 # ------------------------------
 @st.cache_data
@@ -22,6 +48,11 @@ def load_data():
     receivers = pd.read_csv("receivers_data.csv")
     food_listings = pd.read_csv("food_listings_data.csv")
     claims = pd.read_csv("claims_data.csv")
+
+    # --- Clean and classify food type ---
+    if "Food_Name" in food_listings.columns:
+        food_listings["Food_Type"] = food_listings["Food_Name"].apply(classify_food_type)
+
     return providers, receivers, food_listings, claims
 
 @st.cache_resource
@@ -53,10 +84,10 @@ st.title("🍱 Food Donation Insights Dashboard")
 st.sidebar.header("Filters")
 
 cities = providers["City"].dropna().unique().tolist() if "City" in providers.columns else []
-food_types = food_listings["Food_Type"].dropna().unique().tolist() if "Food_Type" in food_listings.columns else []
+food_types = food_listings["Food_Type"].dropna().unique().tolist()
 
 sel_city = st.sidebar.selectbox("City", ["All"] + sorted(map(str, cities))) if cities else "All"
-sel_food = st.sidebar.selectbox("Food Type", ["All"] + sorted(map(str, food_types))) if food_types else "All"
+sel_food = st.sidebar.selectbox("Food Type", ["All"] + sorted(food_types))
 
 # --- Build SQL filters dynamically ---
 filters = []
