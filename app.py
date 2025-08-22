@@ -1,39 +1,137 @@
 # -*- coding: utf-8 -*-
-
-#st.title(" Food Donation Insights Dashboard")
-# Your Streamlit code for the food donation dashboard goes here.
-# Replace this comment and the placeholder code below with your actual Streamlit script.
-# Ensure your script connects to your database and generates your desired visualizations.
-#
-# Example structure:
-#
-# import streamlit as st
-# import pandas as pd
-# import sqlite3
-#
-# # Function to get database connection
-# def get_connection():
-#     conn = sqlite3.connect("food_donation.db")
-#     return conn
-#
-# # --- Streamlit App ---
-# st.set_page_config(layout="wide")
-# st.title("Food Donation Insights Dashboard")
-#
-# # Example: Display total number of food listings
-# conn = get_connection()
-# total_listings_query = "SELECT COUNT(*) FROM food_listings;"
-# total_listings = pd.read_sql(total_listings_query, conn).iloc[0, 0]
-# conn.close()
-#
-# st.write(f"Total Food Listings: {total_listings}")
-#
-# # Add more sections for visualizations and data displays based on your analysis queries
-# # e.g., charts for claims status, food type distribution, etc.
-
-# Placeholder content - **REPLACE THIS WITH YOUR ACTUAL STREAMLIT CODE**
+import pandas as pd
+import sqlite3
 import streamlit as st
+import plotly.express as px
 
-st.title("Placeholder Streamlit App")
-st.write("Please replace this content with your actual Streamlit dashboard code.")
-st.write("Remember to include the database connection and data loading logic.")
+# ------------------------------
+# Streamlit Page Config
+# ------------------------------
+st.set_page_config(
+    page_title="Food Donation Dashboard",
+    page_icon="🍱",
+    layout="wide"
+)
+
+# ------------------------------
+# Load Data
+# ------------------------------
+@st.cache_data
+def load_data():
+    providers = pd.read_csv("providers_data.csv")
+    receivers = pd.read_csv("receivers_data.csv")
+    food_listings = pd.read_csv("food_listings_data.csv")
+    claims = pd.read_csv("claims_data.csv")
+    return providers, receivers, food_listings, claims
+
+@st.cache_resource
+def init_db(providers, receivers, food_listings, claims):
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
+    providers.to_sql("providers", conn, if_exists="replace", index=False)
+    receivers.to_sql("receivers", conn, if_exists="replace", index=False)
+    food_listings.to_sql("food_listings", conn, if_exists="replace", index=False)
+    claims.to_sql("claims", conn, if_exists="replace", index=False)
+    return conn
+
+def run_query(conn, query, params=None):
+    return pd.read_sql(query, conn, params=params)
+
+# ------------------------------
+# Data Load + DB Init
+# ------------------------------
+providers, receivers, food_listings, claims = load_data()
+conn = init_db(providers, receivers, food_listings, claims)
+
+# ------------------------------
+# Dashboard Title
+# ------------------------------
+st.title("🍱 Food Donation Insights Dashboard")
+
+# ------------------------------
+# Sidebar Filters
+# ------------------------------
+st.sidebar.header("Filters")
+
+cities = providers["City"].dropna().unique().tolist() if "City" in providers.columns else []
+food_types = food_listings["Food_Type"].dropna().unique().tolist() if "Food_Type" in food_listings.columns else []
+
+sel_city = st.sidebar.selectbox("City", ["All"] + sorted(map(str, cities))) if cities else "All"
+sel_food = st.sidebar.selectbox("Food Type", ["All"] + sorted(map(str, food_types))) if food_types else "All"
+
+filters = []
+params = {}
+
+if sel_city != "All":
+    filters.append("p.City = :city")
+    params["city"] = sel_city
+if sel_food != "All":
+    filters.append("fl.Food_Type = :ft")
+    params["ft"] = sel_food
+
+where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+
+# ------------------------------
+# KPI Metrics
+# ------------------------------
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Providers", len(providers))
+col2.metric("Receivers", len(receivers))
+col3.metric("Food Listings", len(food_listings))
+col4.metric("Claims", len(claims))
+
+# ------------------------------
+# Monthly Claims Trend
+# ------------------------------
+st.subheader("📈 Monthly Claims Trend")
+query = f"""
+    SELECT strftime('%Y-%m', c.Timestamp) AS Month, COUNT(*) AS Total_Claims
+    FROM claims c
+    LEFT JOIN food_listings fl ON c.Food_ID = fl.Food_ID
+    LEFT JOIN providers p ON fl.Provider_ID = p.Provider_ID
+    {where_clause}
+    GROUP BY Month
+    ORDER BY Month;
+"""
+monthly = run_query(conn, query, params)
+if not monthly.empty:
+    fig = px.bar(monthly, x="Month", y="Total_Claims", title="Claims per Month")
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("No claims data available for the selected filters.")
+
+# ------------------------------
+# Top Providers
+# ------------------------------
+st.subheader("🏆 Top Providers by Donated Quantity")
+query = f"""
+    SELECT fl.Provider_ID, SUM(fl.Quantity) AS Total_Quantity
+    FROM food_listings fl
+    LEFT JOIN providers p ON fl.Provider_ID = p.Provider_ID
+    {where_clause}
+    GROUP BY fl.Provider_ID
+    ORDER BY Total_Quantity DESC
+    LIMIT 5;
+"""
+top_providers = run_query(conn, query, params)
+st.dataframe(top_providers)
+
+# ------------------------------
+# Unclaimed Donations
+# ------------------------------
+st.subheader("🧾 Unclaimed Food Listings")
+query = f"""
+    SELECT fl.Food_ID, fl.Food_Name, fl.Quantity, fl.Expiry_Date
+    FROM food_listings fl
+    LEFT JOIN claims c ON fl.Food_ID = c.Food_ID
+    LEFT JOIN providers p ON fl.Provider_ID = p.Provider_ID
+    {("WHERE " + " AND ".join(filters) + " AND" if filters else "WHERE")} c.Claim_ID IS NULL
+    LIMIT 20;
+"""
+query = query.replace("WHERE  AND", "WHERE")  # fix double WHERE
+unclaimed = run_query(conn, query, params)
+st.dataframe(unclaimed)
+
+# ------------------------------
+# Footer
+# ------------------------------
+st.caption("Built with ❤️ using Streamlit | Food Donation Analytics")
